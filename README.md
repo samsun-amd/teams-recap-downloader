@@ -84,6 +84,7 @@ If a folder with the same name exists, ` (1)`, ` (2)`, ... is added — nothing 
 | `Still waiting for the player...` | Click **Play** in the Edge window; finish sign-in if a login page is shown |
 | `timed out waiting for the player` | Check that you can play the recording in Edge yourself |
 | `WARN: no transcript found` | The recording has no transcript; only the video is saved |
+| `Edge failed to start` | Close any Edge window opened by the tool, then run again. Make sure you are on v1.0.1 or later (v1.0.0 failed this way when started by double-click) |
 | `Closing a previous Edge window...` | Normal: an Edge from an earlier run was still open and is closed first |
 | Signed in with the wrong account, or stuck at login | Close the tool, delete `%LOCALAPPDATA%\teams-recap-dl\profile`, run again |
 
@@ -115,7 +116,9 @@ Pressing **Ctrl+C** stops the download and closes the Edge window cleanly.
 6. Edge is always closed gracefully (`Browser.close`, also on Ctrl+C / console
    close), so it never offers to "restore pages" on the next run. Before launch,
    an Edge still holding the profile `lockfile` is closed and a profile marked
-   as crashed is reset.
+   as crashed is reset. Edge is started with `--edge-skip-compat-layer-relaunch`:
+   when the tool is launched from Explorer, Edge can otherwise relaunch itself
+   and the process the tool started exits, which looks like a failed start.
 
 ## Build
 
