@@ -636,26 +636,24 @@ func baseName(title string) string {
 	return title
 }
 
-// freePath appends " (n)" until none of the given extensions exist.
-func freePath(dir, name string, exts ...string) string {
+// newFolder creates parent/name, appending " (n)" if it already exists.
+func newFolder(parent, name string) (string, error) {
 	for i := 0; ; i++ {
-		cand := name
+		dir := filepath.Join(parent, name)
 		if i > 0 {
-			cand = fmt.Sprintf("%s (%d)", name, i)
+			dir = filepath.Join(parent, fmt.Sprintf("%s (%d)", name, i))
 		}
-		taken := false
-		for _, ext := range exts {
-			if _, err := os.Stat(filepath.Join(dir, cand+ext)); err == nil {
-				taken = true
-			}
+		err := os.Mkdir(dir, 0o755)
+		if err == nil {
+			return dir, nil
 		}
-		if !taken {
-			return filepath.Join(dir, cand)
+		if !os.IsExist(err) {
+			return "", err
 		}
 	}
 }
 
-func run(o *options) error {
+func run(o *options) (err error) {
 	target, err := normalizeURL(o.url)
 	if err != nil {
 		return err
@@ -736,14 +734,18 @@ func run(o *options) error {
 
 	var title string
 	chromedp.Run(ctx, chromedp.Title(&title))
-	var exts []string
-	if !o.transcriptOnly {
-		exts = append(exts, ".mp4")
+	// One folder per download keeps the video and transcript together.
+	name := baseName(title)
+	folder, err := newFolder(o.outDir, name)
+	if err != nil {
+		return err
 	}
-	if !o.noTranscript {
-		exts = append(exts, ".vtt", ".txt")
-	}
-	outBase := freePath(o.outDir, baseName(title), exts...)
+	defer func() {
+		if err != nil {
+			os.Remove(folder) // only succeeds when nothing was saved
+		}
+	}()
+	outBase := filepath.Join(folder, name)
 
 	f := &fetcher{ctx: ctx, st: st, client: &http.Client{Timeout: 90 * time.Second}, cookies: map[string]string{}}
 	key, bootIV := playerKey(ctx)

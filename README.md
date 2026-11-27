@@ -1,7 +1,17 @@
 # teams-recap-dl
 
 Download a Teams meeting recording and its transcript from a Teams Recap link
-or a SharePoint (Stream) video link, as `.mp4` + `.vtt` + `.txt`.
+or a SharePoint (Stream) video link. Each download gets its own folder, named
+after the recording:
+
+```text
+<output dir>\<recording title>\
+    <recording title>.mp4
+    <recording title>.txt   [HH:MM:SS] speaker: text
+    <recording title>.vtt   WebVTT subtitles with speaker tags
+```
+
+If the folder already exists, ` (1)`, ` (2)`, ... is appended.
 
 ## Usage
 

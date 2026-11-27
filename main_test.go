@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -84,5 +85,15 @@ func TestNormalizeURL(t *testing.T) {
 	}
 	if _, err := normalizeURL("http://x"); err == nil {
 		t.Fatal("expected error for non-https URL")
+	}
+}
+
+func TestNewFolder(t *testing.T) {
+	parent := t.TempDir()
+	for _, want := range []string{"rec", "rec (1)", "rec (2)"} {
+		dir, err := newFolder(parent, "rec")
+		if err != nil || dir != filepath.Join(parent, want) {
+			t.Fatalf("got %q, %v; want %q", dir, err, want)
+		}
 	}
 }
