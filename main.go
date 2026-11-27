@@ -39,7 +39,7 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 
 var (
 	manifestRE   = regexp.MustCompile(`(?i)/transform/videomanifest\?`)
