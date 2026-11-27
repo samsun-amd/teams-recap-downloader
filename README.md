@@ -42,6 +42,11 @@ Requirements: Windows, Microsoft Edge, `ffmpeg` on `PATH` (not needed for `-tran
 5. Segments are fetched with the browser's cookies and the player's live request
    headers (`X-Spopactoken`), decrypted, and muxed with `ffmpeg -c copy`.
 
+The browser is always closed gracefully (also on Ctrl+C or when the console
+window is closed), so Edge never offers to "restore pages" on the next run. If
+an Edge from an earlier run is still holding the profile, it is closed first,
+and a profile left marked as crashed is reset before launch.
+
 The profile directory holds your session cookies; do not share it. URLs, tokens
 and keys are never printed.
 

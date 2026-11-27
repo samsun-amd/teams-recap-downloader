@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,6 +95,25 @@ func TestNewFolder(t *testing.T) {
 		dir, err := newFolder(parent, "rec")
 		if err != nil || dir != filepath.Join(parent, want) {
 			t.Fatalf("got %q, %v; want %q", dir, err, want)
+		}
+	}
+}
+
+func TestMarkProfileClean(t *testing.T) {
+	profile := t.TempDir()
+	if err := markProfileClean(profile); err != nil { // missing Preferences is fine
+		t.Fatal(err)
+	}
+	path := filepath.Join(profile, "Default", "Preferences")
+	os.MkdirAll(filepath.Dir(path), 0o755)
+	os.WriteFile(path, []byte(`{"big":13440233717104636,"profile":{"exit_type":"Crashed","name":"x"}}`), 0o644)
+	if err := markProfileClean(profile); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	for _, want := range []string{`"exit_type":"Normal"`, `"exited_cleanly":true`, `"name":"x"`, `13440233717104636`} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("missing %s in %s", want, got)
 		}
 	}
 }

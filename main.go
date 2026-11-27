@@ -25,11 +25,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
@@ -344,6 +346,9 @@ func (f *fetcher) get(rawURL string, base map[string]string, withToken bool) ([]
 func (f *fetcher) fetchSegment(rawURL, label string) ([]byte, error) {
 	last := ""
 	for attempt := 0; attempt < 6; attempt++ {
+		if f.ctx.Err() != nil {
+			return nil, errors.New("browser closed")
+		}
 		manifest, _, seg, _ := f.st.get()
 		base := seg
 		if base == nil {
@@ -680,11 +685,33 @@ func run(o *options) (err error) {
 		// A narrow window collapses the transcript pane, and the player then never loads it.
 		chromedp.WindowSize(1600, 1000),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+		chromedp.Flag("hide-crash-restore-bubble", true),
 	)
+	// A killed browser leaves the profile marked as crashed, and the next start shows
+	// a "Restore pages?" prompt that can keep the page from reaching SSO.
+	if err := closeStaleBrowser(o.profile); err != nil {
+		return err
+	}
+	if err := markProfileClean(o.profile); err != nil {
+		debugf("mark profile clean: %v", err)
+	}
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), allocOpts...)
 	defer cancelAlloc()
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel()
+	ctx, _ := chromedp.NewContext(allocCtx)
+	// chromedp.Cancel closes the browser gracefully (Browser.close) instead of killing it.
+	// It must run once: the signal handler and the deferred call may both reach it.
+	closeBrowser := sync.OnceFunc(func() { chromedp.Cancel(ctx) })
+	defer closeBrowser()
+	// Ctrl+C or closing the console window (SIGTERM on Windows): close the browser cleanly too.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	go func() {
+		if _, ok := <-sig; ok {
+			fmt.Println("\nInterrupted; closing the browser...")
+			closeBrowser()
+		}
+	}()
 
 	st := &liveState{pending: map[network.RequestID]*captured{}, kinds: map[network.RequestID]string{}}
 	listen(ctx, st)
@@ -720,6 +747,9 @@ func run(o *options) (err error) {
 			fmt.Println("WARN: no transcript found for this recording; continuing with video only.")
 			o.noTranscript = true
 			break
+		}
+		if ctx.Err() != nil {
+			return errors.New("browser closed")
 		}
 		if time.Now().After(deadline) {
 			return errors.New("timed out waiting for the player; did the recording page load and play?")
@@ -824,6 +854,68 @@ func run(o *options) (err error) {
 	}
 	fmt.Printf("Saved video: %s (%.0fs)\n", outBase+".mp4", duration)
 	return nil
+}
+
+// closeStaleBrowser closes an Edge left running on the tool profile (for example
+// after the tool was killed); a second Edge on the same profile would not start.
+// Edge holds <profile>/lockfile open while it runs.
+func closeStaleBrowser(profile string) error {
+	lock := filepath.Join(profile, "lockfile")
+	inUse := func() bool {
+		err := os.Remove(lock)
+		return err != nil && !os.IsNotExist(err)
+	}
+	if !inUse() {
+		return nil
+	}
+	fmt.Println("Closing a previous Edge window that is still using the tool profile...")
+	// taskkill without /F asks Edge to close normally, so it does not mark the profile crashed.
+	script := `Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" |
+		Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:TRD_PROFILE) -and $_.CommandLine -notmatch '--type=' } |
+		ForEach-Object { taskkill /PID $_.ProcessId | Out-Null }`
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-Command", script)
+	cmd.Env = append(os.Environ(), "TRD_PROFILE="+profile)
+	cmd.Run()
+	for i := 0; i < 20; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if !inUse() {
+			return nil
+		}
+	}
+	return errors.New("the tool's Edge profile is still in use; close that Edge window and retry")
+}
+
+// markProfileClean sets the profile's last exit to normal so Edge skips crash recovery.
+// UseNumber keeps large integers in Preferences intact through the round trip.
+func markProfileClean(profile string) error {
+	path := filepath.Join(profile, "Default", "Preferences")
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil // fresh profile
+	}
+	if err != nil {
+		return err
+	}
+	var prefs map[string]any
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	if err := dec.Decode(&prefs); err != nil {
+		return err
+	}
+	prof, _ := prefs["profile"].(map[string]any)
+	if prof == nil {
+		prof = map[string]any{}
+		prefs["profile"] = prof
+	}
+	if prof["exit_type"] == "Normal" && prof["exited_cleanly"] == true {
+		return nil
+	}
+	prof["exit_type"], prof["exited_cleanly"] = "Normal", true
+	out, err := json.Marshal(prefs)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o644)
 }
 
 // openTranscriptJS expands the player's transcript pane, which makes it fetch the transcript.
