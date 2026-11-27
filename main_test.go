@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,5 +116,15 @@ func TestMarkProfileClean(t *testing.T) {
 		if !strings.Contains(string(got), want) {
 			t.Fatalf("missing %s in %s", want, got)
 		}
+	}
+}
+
+func TestBrowserError(t *testing.T) {
+	got := browserError(errors.New("chrome failed to start:\n"))
+	if !strings.HasPrefix(got, "Edge failed to start. ") || strings.Contains(got, "chrome") {
+		t.Fatalf("got %q", got)
+	}
+	if got := browserError(errors.New("context canceled")); got != "context canceled" {
+		t.Fatalf("got %q", got)
 	}
 }

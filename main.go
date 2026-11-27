@@ -686,6 +686,9 @@ func run(o *options) (err error) {
 		chromedp.WindowSize(1600, 1000),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
 		chromedp.Flag("hide-crash-restore-bubble", true),
+		// Started from Explorer, the tool can inherit __COMPAT_LAYER. Edge then relaunches itself
+		// and the process chromedp started exits, which looks like "chrome failed to start".
+		chromedp.Flag("edge-skip-compat-layer-relaunch", true),
 	)
 	// A killed browser leaves the profile marked as crashed, and the next start shows
 	// a "Restore pages?" prompt that can keep the page from reaching SSO.
@@ -718,7 +721,7 @@ func run(o *options) (err error) {
 	fmt.Println("Opening the recording. Complete SSO / MFA in the Edge window if prompted.")
 	// Cache off: cached player responses never reach the Network events we capture.
 	if err := chromedp.Run(ctx, network.Enable(), network.SetCacheDisabled(true), chromedp.Navigate(target)); err != nil {
-		return fmt.Errorf("open browser: %w", err)
+		return fmt.Errorf("open browser: %s", browserError(err))
 	}
 
 	// Wait for what we need, nudging playback so the player requests the manifest.
@@ -854,6 +857,19 @@ func run(o *options) (err error) {
 	}
 	fmt.Printf("Saved video: %s (%.0fs)\n", outBase+".mp4", duration)
 	return nil
+}
+
+// browserError rewords chromedp's error, which says "chrome" for every Chromium browser.
+func browserError(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if rest, ok := strings.CutPrefix(msg, "chrome failed to start:"); ok {
+		msg = "Edge failed to start"
+		if rest = strings.TrimSpace(rest); rest != "" {
+			msg += ": " + rest
+		}
+		msg += ". Close any Edge window using the tool profile and try again; run with -debug for details."
+	}
+	return msg
 }
 
 // closeStaleBrowser closes an Edge left running on the tool profile (for example
